@@ -1,9 +1,9 @@
 /** Routes for companies */
 
 const express = require("express");
-const ExpressError = require('../expressError')
+const ExpressError = require('../expressError');
 const router = express.Router();
-const db = require('../db')
+const db = require('../db');
 
 router.get('/', async (req, res, next) => {
   try {
@@ -17,16 +17,27 @@ router.get('/', async (req, res, next) => {
 router.get('/:code', async (req, res, next) => {
   try {
     const {code} = req.params
-    const resultComp = await db.query('SELECT * FROM companies WHERE code = $1', [code])
-    if (resultComp.rows.length === 0) throw new ExpressError(`No company with code: ${code}`, 404)
-
-    const resultInv = await db.query('SELECT * FROM invoices WHERE comp_code = $1', [resultComp.rows[0].code])
-    if (resultComp.rows.length === 0) throw new ExpressError(`Invoice for company not found`, 404)
+    const companyRes = await db.query('SELECT * FROM companies WHERE code = $1', [code])
+    if (companyRes.rows.length === 0) throw new ExpressError(`No company with code: ${code}`, 404)
     
-    const company = resultComp.rows[0]
-    const invoices = resultInv.rows
+    const invoiceRes = await db.query('SELECT * FROM invoices WHERE comp_code = $1', [companyRes.rows[0].code])
+    
+    const industryRes = await db.query(`
+    SELECT i.industry
+      FROM industries AS i
+      LEFT JOIN industries_companies as ic
+      ON i.code = ic.industry_code
+      LEFT JOIN companies AS c
+      ON ic.company_code = c.code
+    WHERE c.code = $1
+    `, [code])
+
+    const company = companyRes.rows[0]
+    const invoices = invoiceRes.rows
+    const industries = industryRes.rows
 
     company.invoices = invoices.map(inv => inv.id)
+    company.industries = industries.map(ind => ind.industry)
 
     return res.json({"company": company})
   } catch (e) {
@@ -66,7 +77,6 @@ router.delete('/:code', async (req, res, next) => {
     const results = await db.query(
       'DELETE FROM companies WHERE code = $1', [code]
     )
-    if (results.rows.length === 0) throw new ExpressError(`No company with code: ${code}`, 404)
     return res.json({msg: 'Deleted company'})
   } catch (e) {
     return next(e)
